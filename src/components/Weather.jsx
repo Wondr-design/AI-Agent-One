@@ -1,38 +1,90 @@
-import React, { useEffect } from "react";
+import React, { useState } from "react";
 import callOpenAi from "@/api/Openai";
 import { getCurrentWeather, getLocation } from "@/tools/tool";
+import systemPrompt from "@/data/systemPrompt";
 
-//Goal - build an agent that can get the current weather at my current location
-// and give me some localized ideas of activities I can do.
 const Weather = () => {
-  useEffect(() => {
-    const getChat = async () => {
-      try {
-        const weather = await getCurrentWeather();
-        const location = await getLocation();
-        const messages = [
-          // {
-          //   role: "system",
-          //   content: "You are an expert in car models",
-          // },
+  const [query, setQuery] = useState("");
+  const [response, setResponse] = useState("");
+  const availableActions = {
+    getCurrentWeather,
+    getLocation,
+  };
+  //   const availableFunctions = {
+  //     "getCurrentWeather": getCurrentWeather,
+  //     "getLocation": getLocation
+  // }
+
+  const agent = async (userQuery) => {
+    /**
+        PLAN[main]:
+        1. Design a well-written ReAct prompt
+        2. Build a loop for my agent to run in.
+        3. Parse any actions that the LLM determines are necessary
+        4. End condition - final Answer is given
+ 
+ */
+    /**
+     * PLAN:
+     * 1. Split the string on the newline character \n
+     * 2. Search through the array of strings for one that has "Action:"
+     * 3. Parse the action (function and parameter) from the string
+     * 4. Calling the function
+     * 5. Add an "Obversation" message with the results of the function call
+     */
+
+    /**
+     * CHALLENGE:
+     * 1. Split the string on the newline character ("\n")
+     * 2. Search through the array of strings for one that has "Action:"
+     *      regex to use:
+     *      const actionRegex = /^Action: (\w+): (.*)$/
+     * 3. Parse the action (function and parameter) from the string
+     */
+    try {
+      const responseFromAi = await callOpenAi({
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
           {
             role: "user",
-            content: `Give me a list of activity ideas based on my current 
-              location of ${location} and weather of ${weather}.`,
+            content: userQuery,
           },
-        ];
-        const response = await callOpenAi({
-          messages,
-        });
-        console.log(response);
-      } catch (error) {
-        console.log(error);
-      }
-    };
-    getChat();
-  }, []);
+        ],
+      });
+      setResponse(responseFromAi || "No response.");
+      const responseLines = responseFromAi.split("\n");
+      console.log(responseLines);
 
-  return <div>Weather</div>;
+      const actionRegex = /^\s*Action: (\w+): (.*)$/;
+      const foundActionStr = responseLines.find((str) => {
+        return actionRegex.test(str);
+      });
+      const actions = actionRegex.exec(foundActionStr);
+      console.log("Action found:", actions);
+      const [_, action, actionArg] = actions;
+      const observation = await availableActions[action](actionArg);
+      console.log("Observation:", observation);
+    } catch (error) {
+      console.error(error);
+      setResponse("Error occurred while fetching AI response.");
+    }
+  };
+
+  return (
+    <>
+      <input
+        id="query"
+        value={query}
+        type="text"
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <button onClick={() => agent(query)}>Submit</button>
+      <div>{response}</div>
+    </>
+  );
 };
 
 export default Weather;
