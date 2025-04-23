@@ -16,6 +16,17 @@ const Weather = () => {
   // }
 
   const agent = async (userQuery) => {
+    const MAX_ITERATIONS = 5;
+    const messages = [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: userQuery,
+      },
+    ];
     /**
         PLAN[main]:
         1. Design a well-written ReAct prompt
@@ -41,35 +52,53 @@ const Weather = () => {
      *      const actionRegex = /^Action: (\w+): (.*)$/
      * 3. Parse the action (function and parameter) from the string
      */
-    try {
-      const responseFromAi = await callOpenAi({
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: userQuery,
-          },
-        ],
-      });
-      setResponse(responseFromAi || "No response.");
-      const responseLines = responseFromAi.split("\n");
-      console.log(responseLines);
+    const actionRegex = /^\s*Action: (\w+): (.*)$/;
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      console.log(`Iteration #${i + 1}`);
 
-      const actionRegex = /^\s*Action: (\w+): (.*)$/;
-      const foundActionStr = responseLines.find((str) => {
-        return actionRegex.test(str);
-      });
-      const actions = actionRegex.exec(foundActionStr);
-      console.log("Action found:", actions);
-      const [_, action, actionArg] = actions;
-      const observation = await availableActions[action](actionArg);
-      console.log("Observation:", observation);
-    } catch (error) {
-      console.error(error);
-      setResponse("Error occurred while fetching AI response.");
+      try {
+        const responseFromAi = await callOpenAi({
+          messages,
+        });
+        setResponse(responseFromAi || "No response.");
+        messages.push({
+          role: "assistant",
+          content: responseFromAi,
+        });
+        const responseLines = responseFromAi.split("\n");
+        console.log(responseLines);
+
+        const foundActionStr = responseLines.find((str) => {
+          return actionRegex.test(str);
+        });
+        if (foundActionStr) {
+          const actions = actionRegex.exec(foundActionStr);
+          console.log("Action found:", actions);
+          if (actions && actions.length === 3) {
+            const [_, action, actionArg] = actions;
+            if (
+              !availableActions.hasOwnProperty.call(availableActions, action)
+            ) {
+              throw new Error(`Unknown action: ${action}: ${actionArg} `);
+            }
+            console.log(
+              `Calling function ${action} with argument ${actionArg}`
+            );
+            const observation = await availableActions[action](actionArg);
+            messages.push({
+              role: "assistant",
+              content: `Observation: ${observation}`,
+            });
+            console.log("Observation:", observation);
+          }
+        } else {
+          console.log("Agent finished with task");
+          return responseFromAi;
+        }
+      } catch (error) {
+        console.error(error);
+        setResponse("Error occurred while fetching AI response.");
+      }
     }
   };
 
